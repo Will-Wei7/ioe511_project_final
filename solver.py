@@ -8,20 +8,20 @@ import algorithms
 def optSolver_WHY(problem, method, options):
     """
     Function that runs a chosen algorithm on a chosen problem.
-    Matches the required signature: [x,f]=optSolver_WHY(problem, method, options) [cite: 266]
+    Matches the required signature: [x,f]=optSolver_WHY(problem, method, options)
 
     Inputs:
-        problem (dict): Problem definition struct/dict [cite: 268]
+        problem (dict): Problem definition struct/dict 
                         Requires 'x0', 'name', 'func', 'grad'
                         Optional: 'Hess', 'f_opt'
-        method (dict): Method specification struct/dict [cite: 270]
+        method (dict): Method specification struct/dict 
                        Requires 'name' (e.g., 'GradientDescent', 'NewtonW', 'BFGS', 'LBFGS-M5-FIFO')
-        options (dict): Algorithm options struct/dict [cite: 276]
+        options (dict): Algorithm options struct/dict 
                         Optional: 'term_tol', 'max_iterations', line search params, TR params, etc.
 
     Outputs:
-        x (ndarray): Final iterate (solution found) [cite: 267]
-        f (float): Final function value [cite: 267]
+        x (ndarray): Final iterate (solution found) 
+        f (float): Final function value
         # Note: The description asks only for x, f. Returning info for analysis.
         # info (dict): Dictionary with performance details (iterations, f_values, etc.)
     """
