@@ -111,4 +111,4 @@ def optSolver_WHY(problem, method, options):
     else:
         raise ValueError(f"Method '{method_name}' is not implemented yet.")
 
-    return x_final, f_final 
+    return x_final, f_final, info
