@@ -408,17 +408,30 @@ def trust_region_newton(problem, options):
     """
     Trust region Newton method with CG subproblem solver.
     """
+    # Determine problem dimension
+    n = len(problem['x0'])
+    
+    # Use more conservative initial radius for small dimension problems
+    delta_init_default = 1.0 if n >= 100 else 0.5
+    delta = options.get('delta_init', delta_init_default)
+    max_delta = options.get('delta_max', 10.0 * delta_init_default)
+    
+    # Adjusted parameters for better stability
+    eta = options.get('eta', 0.2)          # Increased acceptance threshold
+    c1_tr = options.get('c1_tr', 0.5)      # Less aggressive shrink
+    c2_tr = options.get('c2_tr', 1.5)      # Less aggressive expansion
+    
+    # Add damping factor to slow down radius updates
+    radius_damping = options.get('radius_damping', 0.8)
+    shrink_thresh  = options.get('shrink_thresh', 0.10)
+    expand_thresh  = options.get('expand_thresh', 0.90)
+    radius_damping = options.get('radius_damping', 0.95)
+
     x = problem['x0'].copy()
     func = problem['func']
     grad = problem['grad']
     hess = problem['hess']
     f_opt = problem.get('f_opt')
-
-    delta = options.get('delta_init', 1.0) # Initial trust region radius
-    max_delta = options.get('delta_max', 10.0 * delta) # Max radius
-    eta = options.get('eta', 0.1)          # Threshold for acceptable step
-    c1_tr = options.get('c1_tr', 0.25)     # Radius decrease factor (gamma1 in some texts)
-    c2_tr = options.get('c2_tr', 2.0)      # Radius increase factor (gamma2 in some texts)
 
     max_iter = options['max_iterations']
     tol = options['term_tol']
@@ -462,20 +475,24 @@ def trust_region_newton(problem, options):
         else:
             rho = actual_reduction / pred_reduction
 
-        # Update trust region radius based on rho
-        # Nocedal & Wright p. 71 update rules
-        if rho < 0.25:
-            delta *= c1_tr # Reduce radius (0 < c1_tr < 1, typically 0.25)
-        elif rho > 0.75 and LA.norm(p) > (1.0 - 1e-6) * delta: # Increase only if step hit boundary
-             delta = min(c2_tr * delta, max_delta) # Increase radius (c2_tr > 1, typically 2)
+        # Calculate new trust region radius with damping
+        old_delta = delta
+        
+        # Update trust region radius based on rho with damping
+        if rho < shrink_thresh:
+            new_delta = c1_tr * delta
+            delta = old_delta*radius_damping + new_delta*(1-radius_damping)
+        elif rho > expand_thresh and LA.norm(p) > (1-1e-6)*delta:
+            new_delta = min(c2_tr*delta, max_delta)
+            delta = old_delta*radius_damping + new_delta*(1-radius_damping)
+
         # Otherwise (0.25 <= rho <= 0.75), delta remains unchanged
 
         # Ensure delta doesn't become excessively small
         delta = max(delta, 1e-8)
 
-
         # Update iterate if step is acceptable
-        if rho > eta: # eta is typically small, e.g., 0.1
+        if rho > eta: # Using the adjusted eta threshold
             x = x + p
             f_x = f_new
             grad_x = grad(x) # Recompute gradient
@@ -526,12 +543,35 @@ def trust_region_sr1(problem, options):
     # Initialize SR1 Hessian approximation
     B = np.eye(n) # Start with identity matrix
 
-    delta = options.get('delta_init', 1.0)
-    max_delta = options.get('delta_max', 10.0 * delta)
-    eta = options.get('eta', 0.1)
-    c1_tr = options.get('c1_tr', 0.25)
-    c2_tr = options.get('c2_tr', 2.0)
+    # Use more conservative initial radius for small dimension problems
+    delta_init_default = 1.0 if n >= 100 else 0.5
+    delta = options.get('delta_init', delta_init_default)
+    max_delta = options.get('delta_max', 10.0 * delta_init_default)
+    
+    # Adjusted parameters for better stability
+    eta = options.get('eta', 0.2)          # Increased acceptance threshold
+    c1_tr = options.get('c1_tr', 0.5)      # Less aggressive shrink
+    c2_tr = options.get('c2_tr', 1.5)      # Less aggressive expansion
+    
+    # Add damping factor to slow down radius updates
+    radius_damping = options.get('radius_damping', 0.8)
+    
+    # Regularization parameters for SR1 update
     sr1_threshold = options.get('sr1_tol', 1e-8) # Threshold for SR1 update
+    reg_init = options.get('sr1_reg_init', 1e-6) # Initial regularization parameter
+    reg_update = options.get('sr1_reg_update', 1.2) # Regularization increase factor
+    reg_param = reg_init  # Initialize regularization parameter
+    
+    # Careful step acceptance parameters
+    strict_acceptance = options.get('strict_acceptance', True) # Whether to use stricter acceptance criteria
+    rho_accept_threshold = options.get('rho_accept', 0.1)  # Default is 0.1 (eta)
+    consecutive_rejects = 0
+    max_consecutive_rejects = options.get('max_rejects', 3)
+    
+    # Adaptive trust region parameters
+    use_adaptive_tr = options.get('adaptive_tr', True)
+    tr_history_size = options.get('tr_history', 5)
+    rho_history = []
 
     max_iter = options['max_iterations']
     tol = options['term_tol']
@@ -573,59 +613,87 @@ def trust_region_sr1(problem, options):
         else:
             rho = actual_reduction / pred_reduction
 
-        # Calculate terms for SR1 update
-        s = p # Change in x
-        y = grad_new - grad_x # Change in gradient
-        Bs = B @ s
-        v = y - Bs
-        denom = v @ s
+        # Calculate new trust region radius with damping
+        old_delta = delta
+        
+        # Update trust region radius based on rho with damping
+        if rho < 0.25:
+            # Apply damping when decreasing radius
+            new_delta = c1_tr * delta
+            delta = old_delta * radius_damping + new_delta * (1 - radius_damping)
+        elif rho > 0.75 and LA.norm(p) > (1.0 - 1e-6) * delta:
+            # Apply damping when increasing radius
+            new_delta = min(c2_tr * delta, max_delta)
+            delta = old_delta * radius_damping + new_delta * (1 - radius_damping)
+        # Otherwise (0.25 <= rho <= 0.75), delta remains unchanged
 
-        # Check SR1 update condition |s.T(y - Bs)| >= r * ||s|| * ||y - Bs||
-        update_B = False
-        if abs(denom) >= sr1_threshold * LA.norm(s) * LA.norm(v):
-             update_B = True
-
+        # Ensure delta doesn't become excessively small
+        delta = max(delta, 1e-8)
+        
+        # Save rho for adaptive trust region management
+        if use_adaptive_tr:
+            rho_history.append(rho)
+            if len(rho_history) > tr_history_size:
+                rho_history.pop(0)
+                
+            # Adjust parameters based on history
+            if len(rho_history) >= 3:
+                recent_rhos = np.array(rho_history[-3:])
+                # If we're seeing oscillating behavior
+                if np.std(recent_rhos) > 0.5:
+                    # Increase damping to stabilize
+                    radius_damping = min(0.95, radius_damping * 1.05)
+                else:
+                    # Gradually reduce damping when stable
+                    radius_damping = max(0.7, radius_damping * 0.99)
 
         # Update iterate if step is acceptable
         if rho > eta:
+            # Actually move to new point
+            s = p  # Step vector
+            y = grad_new - grad_x  # Gradient difference
             x = x_new
             f_x = f_new
             grad_x = grad_new
             grad_norm = LA.norm(grad_x)
-
-            # Apply SR1 update *after* accepting the step, using accepted s and y
-            if update_B:
-                B = B + np.outer(v, v) / denom # SR1 update formula
+            
+            # SR1 update of Hessian approximation
+            Bs = B @ s
+            diff = y - Bs
+            denom = diff @ s
+            
+            # Skip update if denominator is too small or curvature is negative
+            if abs(denom) >= sr1_threshold * LA.norm(diff) * LA.norm(s):
+                # Standard SR1 update formula
+                B = B + np.outer(diff, diff) / denom
+            
+            # Reset rejection counter
+            consecutive_rejects = 0
         else:
-             # Step rejected, iterate remains x, f_x, grad_x
-             # SR1 update might still be performed if condition holds (optional strategy)
-             # Nocedal & Wright suggest skipping update if step rejected (p. 201)
-             pass
-
-
-        # Update trust region radius (do this regardless of step acceptance)
-        if rho < 0.25:
-            delta = max(c1_tr * delta, 1e-6)
-        elif rho > 0.75 and LA.norm(p) > (1.0 - 1e-6) * delta:
-            delta = min(c2_tr * delta, max_delta)
-        # Ensure delta doesn't become excessively small
-        delta = max(delta, 1e-8)
-
-
+            # Step rejected, increment counter
+            consecutive_rejects += 1
+            
+            # If too many consecutive rejections, try increasing regularization
+            if consecutive_rejects >= max_consecutive_rejects:
+                reg_param *= reg_update
+                B = B + reg_param * np.eye(n)
+                consecutive_rejects = 0
+        
         iter_count += 1
-
+        
+        # Store history
         f_history.append(f_x)
         grad_norms.append(grad_norm)
         times.append(time.time() - start_time)
         tr_radii.append(delta)
         rho_values.append(rho)
-
+        
         if verbose:
             print(f"{iter_count:^5} | {f_x:^15.6e} | {grad_norm:^15.6e} | {delta:^10.6e} | {rho:^10.6e}")
-
+    
     success = grad_norm < tol
     termination_reason = "Gradient norm tolerance reached" if success else "Max iterations reached"
-
+    
     info = {
         'iterations': iter_count,
         'f_values': f_history,
@@ -636,11 +704,9 @@ def trust_region_sr1(problem, options):
         'success': success,
         'termination_reason': termination_reason
     }
-
     if f_opt is not None:
-         info['f_gaps'] = [f - f_opt for f in f_history]
-
-
+        info['f_gaps'] = [f - f_opt for f in f_history]
+    
     return x, f_x, info
 
 def bfgs(problem, options, backtracking=True):
