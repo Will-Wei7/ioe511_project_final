@@ -3,7 +3,7 @@
 
 import numpy as np
 import time
-import algorithms 
+import algorithms
 
 def optSolver_WHY(problem, method, options):
     """
@@ -26,34 +26,130 @@ def optSolver_WHY(problem, method, options):
         # info (dict): Dictionary with performance details (iterations, f_values, etc.)
     """
     method_name = method['name']
-    problem_dict = problem # problem is a dict or compatible object
+    problem_dict = problem
+    
+    # Check if we should skip Newton-based methods for Exponential_1000
+    problem_name = problem_dict.get('name', '')
+    if problem_name == 'Exponential_1000' and any(x in method_name for x in ['Newton', 'TRNewtonCG', 'TRSR1CG']):
+        print(f"Skipping {method_name} for Exponential_1000 as requested.")
+        # Return dummy results to indicate it was skipped
+        x_final = problem_dict['x0'].copy()
+        f_final = problem_dict['func'](x_final)
+        info = {
+            'iterations': 0,
+            'f_values': [f_final],
+            'grad_norms': [np.linalg.norm(problem_dict['grad'](x_final))],
+            'times': [0.0],
+            'success': False,
+            'termination_reason': "Skipped for Exponential_1000"
+        }
+        return x_final, f_final, info
 
-    # --- Set Default Options ---
+    # Construct the options
     default_options = {
-        'term_tol': 1e-6,              
-        'max_iterations': 1000,        
-        'c1_ls': 1e-4,                 # Armijo constant 
-        'c2_ls': 0.9,                  # Wolfe curvature constant 
-        'alpha_init': 1.0,             # Initial step size for line search
-        'c': 0.5,                      # Backtracking reduction factor / Wolfe interpolation factor
-        'alpha_high': 10.0,            # Max step size for Wolfe
-        'max_ls_iter': 20,             # Max line search iterations
-        'eta': 0.1,                    # TR step acceptance threshold 
-        'delta_init': 1.0,             # Initial TR radius 
-        'delta_max': 10.0,             # Max TR radius
-        'c1_tr': 0.25,                 # TR radius decrease factor 
-        'c2_tr': 2.0,                  # TR radius increase factor 
-        'term_tol_CG': 1e-8,           # CG tolerance 
-        'max_iterations_CG': max(10, len(problem_dict['x0'])), # CG iteration limit 
-        'sr1_tol': 1e-8,               # SR1 update tolerance 
-        'verbose': False               # Print iteration details
+        'term_tol': 1e-6,            # Optimality tolerance (gradient norm)
+        'max_iterations': 1000,       # Maximum number of iterations
+        
+        # Line Search Parameters
+        'alpha_init': 1.0,            # Initial step size
+        'c1_ls': 1e-4,                # Armijo constant - normally between 1e-4 and 1e-1
+        'c2_ls': 0.9,                 # Wolfe curvature constant - normally between 0.1 and 0.9
+        'c': 0.5,                     # Backtracking line search reduction factor (rho)
+        'max_ls_iter': 20,            # Maximum line search iterations
+        'alpha_max': 10.0,            # Maximum step size for Wolfe line search
+        
+        # Trust Region Parameters
+        'delta_init': 1.0,            # Initial trust region radius
+        'delta_max': 10.0,            # Maximum trust region radius
+        'eta': 0.15,                  # Trust region step acceptance threshold
+        
+        # CG Solver for Trust Region
+        'cg_max_iter': 100,           # Maximum CG iterations
+        'cg_tol': 0.1,                # CG tolerance for TR subproblem
+        
+        # SR1 parameters
+        'sr1_threshold': 0.0,         # Threshold for SR1 update to maintain stability
+        'max_consecutive_rejects': 5,  # Maximum consecutive rejected steps before regularization
+        'sr1_reg_init': 1e-6,         # Initial regularization value for SR1
+        'sr1_reg_update': 1.2,        # Regularization increase factor
+        
+        'verbose': False              # Print iterations
     }
-    # Merge user options with defaults
-    current_options = default_options.copy()
-    current_options.update(options)
+    
+    # Apply optimal parameters for Gradient Descent methods based on hyperparameter tuning
+    if method_name == "GradientDescent":
+        gd_optimal_params = {
+            'c1_ls': 1e-5,            # Optimal Armijo constant from tuning
+            'alpha_init': 5.0,         # Optimal initial step size
+            'c': 0.9                   # Optimal backtracking reduction factor
+        }
+        for param, value in gd_optimal_params.items():
+            default_options[param] = value
+    elif method_name == "GradientDescentW":
+        gdw_optimal_params = {
+            'c1_ls': 1e-5,            # Optimal Armijo constant from tuning
+            'alpha_init': 0.1,         # Optimal initial step size
+            'c2_ls': 0.5               # Optimal Wolfe curvature constant
+        }
+        for param, value in gdw_optimal_params.items():
+            default_options[param] = value
+    # Apply optimal parameters for Newton methods based on hyperparameter tuning
+    elif method_name == "Newton":
+        newton_optimal_params = {
+            'c1_ls': 1e-5,            # Optimal Armijo constant from tuning
+            'alpha_init': 1.0,         # Optimal initial step size
+            'c': 0.1                   # Optimal backtracking reduction factor
+        }
+        for param, value in newton_optimal_params.items():
+            default_options[param] = value
+    elif method_name == "NewtonW":
+        newtonw_optimal_params = {
+            'c1_ls': 1e-5,            # Optimal Armijo constant from tuning
+            'alpha_init': 0.5,         # Optimal initial step size
+            'c2_ls': 0.5               # Optimal Wolfe curvature constant
+        }
+        for param, value in newtonw_optimal_params.items():
+            default_options[param] = value
+    # Apply optimal parameters for BFGS methods based on hyperparameter tuning
+    elif method_name == "BFGS":
+        bfgs_optimal_params = {
+            'c1_ls': 1e-4,            # Optimal Armijo constant from tuning
+            'alpha_init': 1.0,         # Optimal initial step size
+            'c': 0.5                   # Optimal backtracking reduction factor
+        }
+        for param, value in bfgs_optimal_params.items():
+            default_options[param] = value
+    elif method_name == "BFGSW":
+        bfgsw_optimal_params = {
+            'c1_ls': 1e-4,            # Optimal Armijo constant from tuning
+            'alpha_init': 1.0,         # Optimal initial step size
+            'c2_ls': 0.9              # Optimal Wolfe curvature constant
+        }
+        for param, value in bfgsw_optimal_params.items():
+            default_options[param] = value
 
-    # --- Algorithm Selection ---
-    x_final, f_final, info = None, None, None
+    elif method_name == "BFGSW+":
+        # Enhanced BFGS with Wolfe line search and robust improvements
+        bfgsw_plus_params = {
+            'c1_ls': 1e-6,            # Armijo parameter (more lenient)
+            'c2_ls': 0.7,             # Wolfe parameter (less strict)
+            'alpha_init': 0.5,        # Initial step size
+            'alpha_max': 20.0,        # Maximum step size
+            'max_ls_iter': 30,        # More line search iterations
+            'hessian_reset_threshold': 1e-10,  # Threshold for Hessian resets
+            'regularization_factor': 1e-6,    # Regularization for positive definiteness
+            'max_small_steps': 5,     # Max consecutive small steps before jittering
+            'min_step_size': 1e-10,   # Minimum effective step size
+            'max_condition_number': 1e8  # Maximum condition number before regularization
+        }
+        for param, value in bfgsw_plus_params.items():
+            default_options[param] = value
+    
+    # Apply any user-specified options
+    current_options = default_options.copy()
+    if options:
+        for key, value in options.items():
+            current_options[key] = value
 
     # Line Search Methods 
     if method_name == "GradientDescent":
@@ -67,6 +163,9 @@ def optSolver_WHY(problem, method, options):
     elif method_name == "BFGS":
         x_final, f_final, info = algorithms.bfgs(problem_dict, current_options, backtracking=True)
     elif method_name == "BFGSW": # W indicates Wolfe
+        x_final, f_final, info = algorithms.bfgs(problem_dict, current_options, backtracking=False)
+    elif method_name == "BFGSW+": # Enhanced BFGS with Wolfe line search
+        # Use the regular BFGS implementation with the special parameters set above
         x_final, f_final, info = algorithms.bfgs(problem_dict, current_options, backtracking=False)
     elif method_name == "DFP":
         x_final, f_final, info = algorithms.dfp(problem_dict, current_options, backtracking=True)

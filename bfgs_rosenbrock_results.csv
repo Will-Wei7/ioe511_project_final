@@ -1,0 +1,5 @@
+Problem,Method,Iterations,Final_f_x,Final_grad_norm,Runtime
+Rosenbrock_2,BFGS,34,2.74565300e-17,8.83466574e-08,0.0075
+Rosenbrock_2,BFGSW,34,1.89320690e-18,6.14965378e-08,0.0080
+Rosenbrock_100,BFGS,1000,8.09013471e+00,5.99914830e+01,0.6286
+Rosenbrock_100,BFGSW,1000,8.08910656e+00,5.99828412e+01,0.7402

@@ -507,7 +507,6 @@ PROBLEMS_DICT = {
     # Note: Discrepancy in original problem P11 name vs dimension.
     # Offering both based on interpretation.
     'Exponential_1000': lambda: create_exponential_problem(n=1000), # Based on P11 name
-    'Exponential_100': lambda: create_exponential_problem(n=100),  # Based on P11 text
     'Genhumps_5': lambda: create_genhumps_problem(n=5),
 
     # Other standard test problems

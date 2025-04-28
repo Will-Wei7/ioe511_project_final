@@ -2,40 +2,84 @@ import matplotlib.pyplot as plt
 import numpy as np
 
 # Convergence plot without success/failure criteria
-def plot_convergence(detailed_info):
+def plot_convergence(detailed_info, use_raw_values=False):
+    """
+    Plot convergence of function values across iterations.
+    
+    Args:
+        detailed_info: Dictionary with problem/method results
+        use_raw_values: If True, always plots raw f_values instead of f_gaps
+    """
     for problem_name in detailed_info:
         plt.figure(figsize=(10, 6))
         plt.title(f"Convergence Plot for {problem_name} f(x_k)")
         
-        problem_has_gap = False
+        # Track min/max values for proper y-axis scaling
+        min_y = float('inf')
+        max_y = float('-inf')
+        
+        # Check if this is a quadratic problem or if user requested raw values
+        use_raw = use_raw_values or 'quad' in problem_name.lower()
+        
         for method_name, info in detailed_info[problem_name].items():
             # Skip LBFGS method
             if 'lbfgs' in method_name.lower():
                 continue
                 
-            # Plot all methods using f_gaps if available
-            if 'f_gaps' in info and info['f_gaps']:
+            # Plot all methods using f_values if requested or for quadratic problems
+            if use_raw and 'f_values' in info and info['f_values']:
+                iterations = range(len(info['f_values']))
+                f_values_plot = np.array(info['f_values'])
+                
+                plt.plot(iterations, f_values_plot, label=f"{method_name}", markersize=3)
+                
+                # Update min/max for y-axis limits
+                min_y = min(min_y, np.min(f_values_plot))
+                max_y = max(max_y, np.max(f_values_plot))
+                
+            # Otherwise use f_gaps if available 
+            elif not use_raw and 'f_gaps' in info and info['f_gaps']:
                 iterations = range(len(info['f_gaps']))
                 # Add a small epsilon to avoid log(0) issues
                 f_gaps_plot = np.maximum(np.array(info['f_gaps']), 1e-16) 
                 
                 plt.plot(iterations, f_gaps_plot, label=method_name, markersize=3)
-                problem_has_gap = True
+                
+                # Update min/max for y-axis limits
+                min_y = min(min_y, np.min(f_gaps_plot))
+                max_y = max(max_y, np.max(f_gaps_plot))
+                
+            # Fallback to f_values if neither of the above conditions are met
             elif 'f_values' in info and info['f_values']:
-                # Plot f_values if f_gaps is not available
-                print(f"Note: Plotting f(x_k) for {method_name} on {problem_name} as f* is unavailable.")
                 iterations = range(len(info['f_values']))
                 f_values_plot = np.array(info['f_values'])
                 
-                plt.plot(iterations, f_values_plot, label=f"{method_name} (f(x))", markersize=3)
+                plt.plot(iterations, f_values_plot, label=f"{method_name}", markersize=3)
+                
+                # Update min/max for y-axis limits
+                min_y = min(min_y, np.min(f_values_plot))
+                max_y = max(max_y, np.max(f_values_plot))
 
-        plt.ylabel('f(x_k)') # Label appropriately if plotting raw function values
+        # Use appropriate y-axis label based on what we're plotting
+        plt.ylabel('f(x_k)')
+
+            
         plt.xlabel('Iterations')
         plt.grid(True, which="both", ls="--", alpha=0.5)
         plt.legend(fontsize='small')
         
-        # Set x-axis range to [0, 1000] for all problems
-        plt.xlim(0, 1000)
+        # Set custom x-axis range based on problem name
+        if problem_name in ['quad_10_10', 'P5_quartic_1', 'P6_quartic_2', 'Rosenbrock_2']:
+            plt.xlim(0, 100)  # Specific range for quad_10_10
+        elif problem_name in ['quad_10_1000', 'quad_1000_10', 'quad_1000_1000']:
+            plt.xlim(0, 1000)  # Keep [0, 1000] for large quadratic problems
+        else:
+            plt.xlim(0, 200)  # Default range [0, 200] for all other problems
+        
+        # Set y-axis limits with proper padding to show full range
+        if min_y != float('inf') and max_y != float('-inf'):
+            y_range = max_y - min_y
+            plt.ylim(min_y - 0.05 * y_range, max_y + 0.05 * y_range)
             
         plt.tight_layout()
         plt.show()
